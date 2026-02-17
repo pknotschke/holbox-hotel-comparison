@@ -391,7 +391,6 @@
             text-align: center;
         }
 
-        /* Scrollbar styling */
         ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
@@ -493,7 +492,7 @@
                 </thead>
                 <tbody id="tableBody">
                     <tr class="loading">
-                        <td colspan="13" id="loadingMsg">⏳ Initializing...</td>
+                        <td colspan="13" id="loadingMsg">⏳ Connecting to database...</td>
                     </tr>
                 </tbody>
             </table>
@@ -519,20 +518,12 @@
     </div>
 
     <script>
-        // Firebase Configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyAqNKyJMI38_0f8XpWLFgN7E7m_ZmEqLfQ",
-            authDomain: "holbox-hotels.firebaseapp.com",
-            projectId: "holbox-hotels",
-            databaseURL: "https://holbox-hotels-default-rtdb.firebaseio.com",
-            storageBucket: "holbox-hotels.appspot.com",
-            messagingSenderId: "1089755447213",
-            appId: "1:1089755447213:web:9b4c7c5e7f8a9b0c1d2e3f"
-        };
-
         let hotels = {};
         let currentEditHotel = null;
         let currentEditField = null;
+        let database = null;
+        let hotelsRef = null;
+        let isFirebaseReady = false;
 
         const initialHotels = {
             'hotel1': {
@@ -613,42 +604,69 @@
         };
 
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-        const hotelsRef = database.ref('hotels');
+        const firebaseConfig = {
+            apiKey: "AIzaSyDpP_lKG8VrYW_vQkh5lR2vJ3f8mN9oQpA",
+            authDomain: "holbox-collaboration.firebaseapp.com",
+            projectId: "holbox-collaboration",
+            databaseURL: "https://holbox-collaboration-default-rtdb.firebaseio.com",
+            storageBucket: "holbox-collaboration.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdef1234567890"
+        };
 
-        // Initialize data and listen for changes
-        hotelsRef.once('value', snapshot => {
-            if (!snapshot.exists()) {
-                document.getElementById('loadingMsg').textContent = '⏳ Initializing database with hotel data...';
-                hotelsRef.set(initialHotels).then(() => {
-                    hotels = initialHotels;
-                    renderTable();
-                }).catch(err => {
-                    showError('Failed to initialize data: ' + err.message);
-                    hotels = initialHotels;
-                    renderTable();
-                });
-            } else {
-                hotels = snapshot.val();
+        function initFirebase() {
+            try {
+                firebase.initializeApp(firebaseConfig);
+                database = firebase.database();
+                hotelsRef = database.ref('hotels');
+                isFirebaseReady = true;
+                console.log('Firebase initialized successfully');
+                loadData();
+            } catch (error) {
+                console.error('Firebase init error:', error);
+                showError('Firebase connection failed. Using local data.');
+                hotels = initialHotels;
                 renderTable();
             }
-        }).catch(err => {
-            showError('Firebase connection error: ' + err.message);
-            document.getElementById('loadingMsg').textContent = '📱 Using local data (offline mode)';
-            hotels = initialHotels;
-            renderTable();
-        });
+        }
 
-        // Listen for real-time updates
-        hotelsRef.on('value', snapshot => {
-            if (snapshot.exists()) {
-                hotels = snapshot.val();
+        function loadData() {
+            if (!isFirebaseReady) return;
+            
+            hotelsRef.once('value', snapshot => {
+                if (!snapshot.exists()) {
+                    document.getElementById('loadingMsg').textContent = '⏳ Initializing database...';
+                    hotelsRef.set(initialHotels).then(() => {
+                        hotels = initialHotels;
+                        renderTable();
+                        setupRealtimeListener();
+                    }).catch(err => {
+                        showError('Failed to initialize: ' + err.message);
+                        hotels = initialHotels;
+                        renderTable();
+                    });
+                } else {
+                    hotels = snapshot.val();
+                    renderTable();
+                    setupRealtimeListener();
+                }
+            }).catch(err => {
+                showError('Database error: ' + err.message);
+                hotels = initialHotels;
                 renderTable();
-            }
-        }, err => {
-            console.log('Real-time sync error:', err);
-        });
+            });
+        }
+
+        function setupRealtimeListener() {
+            hotelsRef.on('value', snapshot => {
+                if (snapshot.exists()) {
+                    hotels = snapshot.val();
+                    renderTable();
+                }
+            }, err => {
+                console.log('Sync error:', err);
+            });
+        }
 
         function renderTable() {
             const tbody = document.getElementById('tableBody');
@@ -707,11 +725,16 @@
         function saveEdit() {
             if (currentEditHotel && currentEditField) {
                 const newValue = document.getElementById('editField').value;
-                const updateData = {};
-                updateData[`${currentEditHotel}/${currentEditField}`] = newValue;
-                hotelsRef.update(updateData).catch(err => {
-                    showError('Failed to save: ' + err.message);
-                });
+                if (isFirebaseReady && hotelsRef) {
+                    const updateData = {};
+                    updateData[`${currentEditHotel}/${currentEditField}`] = newValue;
+                    hotelsRef.update(updateData).catch(err => {
+                        showError('Failed to save: ' + err.message);
+                    });
+                } else {
+                    hotels[currentEditHotel][currentEditField] = newValue;
+                    renderTable();
+                }
             }
             closeEditModal();
         }
@@ -719,15 +742,25 @@
         function toggleFinalist(hotelKey) {
             const current = hotels[hotelKey].finalist;
             const next = current === 'Yes' ? '' : 'Yes';
-            const updateData = {};
-            updateData[`${hotelKey}/finalist`] = next;
-            hotelsRef.update(updateData);
+            if (isFirebaseReady && hotelsRef) {
+                const updateData = {};
+                updateData[`${hotelKey}/finalist`] = next;
+                hotelsRef.update(updateData);
+            } else {
+                hotels[hotelKey].finalist = next;
+                renderTable();
+            }
         }
 
         function setFinalist(hotelKey, value) {
-            const updateData = {};
-            updateData[`${hotelKey}/finalist`] = value;
-            hotelsRef.update(updateData);
+            if (isFirebaseReady && hotelsRef) {
+                const updateData = {};
+                updateData[`${hotelKey}/finalist`] = value;
+                hotelsRef.update(updateData);
+            } else {
+                hotels[hotelKey].finalist = value;
+                renderTable();
+            }
         }
 
         function exportToCSV() {
@@ -781,7 +814,6 @@
             return (text || '').replace(/[&<>"']/g, m => map[m]);
         }
 
-        // Close modal when clicking outside
         window.onclick = function(event) {
             const modal = document.getElementById('editModal');
             if (event.target == modal) {
@@ -789,13 +821,15 @@
             }
         }
 
-        // Allow Enter key to save
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Enter' && event.ctrlKey && document.getElementById('editModal').style.display === 'block') {
                 event.preventDefault();
                 saveEdit();
             }
         });
+
+        // Start initialization
+        initFirebase();
     </script>
 </body>
 </html>
